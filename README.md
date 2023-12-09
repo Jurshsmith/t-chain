@@ -1,4 +1,4 @@
 Motivations
 
-- Simulate fundamental constraints of blockchain systems
-- Demonstrate how a blockchain works fundamentally to anyone
+- Simulate inevitable constraints of blockchain systems
+- Demo blockchain ground-level concepts to anyone
