@@ -1,0 +1,9 @@
+[package]
+name = "networking"
+version = "0.0.1"
+edition = "2021"
+description = "How T-chain discover, connect and communicate with each other"
+license = "MIT OR Apache-2.0"
+readme="../README.md"
+
+[dependencies]
