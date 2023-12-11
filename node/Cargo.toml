@@ -1,0 +1,15 @@
+[package]
+name = "node"
+version = "0.0.1"
+edition = "2021"
+description = "How T-chain nodes discover, connect and communicate with each other"
+license = "MIT OR Apache-2.0"
+readme="../README.md"
+
+[dependencies]
+async-std = { version = "1.12", features = ["attributes"] }
+futures = "0.3"
+libp2p = { version = "0.53", features = ["tokio", "gossipsub", "mdns", "noise", "macros", "tcp", "yamux", "quic"] }
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1.37"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
