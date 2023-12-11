@@ -1,5 +1,5 @@
 [package]
-name = "proof-of-work"
+name = "consensus"
 version = "0.0.1"
 edition = "2021"
 description = "T-chain's proof of work consensus algorithm implementation"
