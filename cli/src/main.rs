@@ -3,8 +3,7 @@ use clap::Command;
 fn main() {
     let cli_app = Command::new("t-chain")
         .version("0.0.1")
-        .author("Your Name")
-        .about("T-chain CLI application used to start and interact with t-chain")
+        .about("T-chain CLI application used to start and interact with t-chain network")
         .subcommand(
             Command::new("start")
                 .about("Starts a t-chain daemon")
