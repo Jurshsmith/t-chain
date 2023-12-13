@@ -10,6 +10,6 @@ readme="../README.md"
 async-std = { version = "1.12", features = ["attributes"] }
 futures = "0.3"
 libp2p = { version = "0.53", features = ["tokio", "gossipsub", "mdns", "noise", "macros", "tcp", "yamux", "quic"] }
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["full", "time"] }
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

@@ -1,7 +1,10 @@
 use futures::stream::StreamExt;
 use libp2p::{gossipsub, mdns, noise, swarm::NetworkBehaviour, swarm::SwarmEvent, tcp, yamux};
 use std::error::Error;
+use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::Mutex;
+use tokio::time::{self, Duration as TokioDuration};
 use tokio::{io, io::AsyncBufReadExt, select};
 use tracing_subscriber::EnvFilter;
 
@@ -56,22 +59,143 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     println!("Available commands: 'ADD_TRANSACTION', 'FETCH_BLOCKCHAIN'");
 
-    // Kick it off
+    #[derive(Clone, Debug)]
+    struct Transaction {
+        from: u64,
+        to: u64,
+    }
+    impl Transaction {
+        fn new() -> Self {
+            Self {
+                from: 0x000,
+                to: 0x123,
+            }
+        }
+    }
+
+    #[derive(Clone, Debug)]
+    struct Block {
+        number: u64,
+        transactions: Vec<Transaction>,
+    }
+    impl Block {
+        const GENESIS_BLOCK_NUMBER: u64 = 1;
+
+        fn new(last_mined_block_number: Option<u64>, transactions: &Vec<Transaction>) -> Self {
+            Self {
+                number: last_mined_block_number
+                    .and_then(|last_mined_block_number| Some(last_mined_block_number + 1))
+                    .unwrap_or(Self::GENESIS_BLOCK_NUMBER),
+                transactions: transactions.clone(),
+            }
+        }
+    }
+
+    #[derive(Debug)]
+    struct Blockchain {
+        blocks: Mutex<Vec<Block>>,
+    }
+
+    impl Blockchain {
+        const BLOCK_MINING_INTERVAL_MS: u64 = 10000;
+
+        fn new() -> Self {
+            Self {
+                blocks: Mutex::new(Vec::new()),
+            }
+        }
+        async fn get_last_mined_block_number(&self) -> Option<u64> {
+            let last_mined_block = self.get_last_mined_block().await;
+
+            last_mined_block.and_then(|block| Some(block.number))
+        }
+        async fn get_last_mined_block(&self) -> Option<Block> {
+            let blocks = self.blocks.lock().await;
+
+            blocks.last().cloned()
+        }
+        async fn mine_naively(&self, new_block: Block) {
+            let mut blocks = self.blocks.lock().await;
+            blocks.push(new_block);
+        }
+    }
+    #[derive(Debug)]
+    struct TransactionPool {
+        transactions: Mutex<Vec<Transaction>>,
+    }
+
+    impl TransactionPool {
+        fn new() -> Self {
+            Self {
+                transactions: Mutex::new(Vec::new()),
+            }
+        }
+        async fn has_pending_transactions(&self) -> bool {
+            self.get_transactions().await.len() > 0
+        }
+        async fn get_transactions(&self) -> Vec<Transaction> {
+            self.transactions.lock().await.to_vec()
+        }
+        async fn add(&self, transaction: Transaction) {
+            let mut transactions = self.transactions.lock().await;
+            transactions.push(transaction)
+        }
+        async fn clear(&self) {
+            let mut transactions = self.transactions.lock().await;
+            *transactions = Vec::new();
+        }
+    }
+
+    let blockchain = Arc::new(Blockchain::new());
+    let transaction_pool = Arc::new(TransactionPool::new());
+
+    {
+        let blockchain = blockchain.clone();
+        let transaction_pool = transaction_pool.clone();
+
+        tokio::spawn(async move {
+            let mut new_block_interval = time::interval(TokioDuration::from_millis(
+                Blockchain::BLOCK_MINING_INTERVAL_MS,
+            ));
+
+            loop {
+                new_block_interval.tick().await;
+
+                let last_mined_block_number = blockchain.get_last_mined_block_number().await;
+
+                if transaction_pool.has_pending_transactions().await {
+                    let new_block = Block::new(
+                        last_mined_block_number,
+                        &transaction_pool.get_transactions().await,
+                    );
+                    blockchain.mine_naively(new_block).await;
+                    transaction_pool.clear().await;
+                }
+            }
+        });
+    }
+
     loop {
+        let transaction_pool = transaction_pool.clone();
+
+        let add_to_transaction_pool = async move {
+            transaction_pool.add(Transaction::new()).await;
+
+            println!("Transaction Added to MemPool/TransactionPool");
+        };
         select! {
             Ok(Some(line)) = stdin.next_line() => {
                 match line.as_str() {
                     "ADD_TRANSACTION" => {
+                        add_to_transaction_pool.await;
                         if let Err(e) = swarm.behaviour_mut().gossipsub.publish(topic.clone(), line.as_bytes()) {
                             println!("Publish error: {e:?}");
                         }
                     },
-                    "FETCH_BLOCKCHAIN" => {
-                        // TODO
-                        let blockchain: Vec<u64> = vec![];
-                        println!("Publish error: {:?}", blockchain);
-                    },
-                    _ => eprintln!("Invalid command")
+                    "FETCH_BLOCKCHAIN" =>  {
+                        println!("Blockchain: {:?}", blockchain.clone());
+                    }
+                    _ =>  eprintln!("Invalid command")
                 }
 
             }
@@ -92,10 +216,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     propagation_source: peer_id,
                     message_id: id,
                     message,
-                })) => println!(
-                        "Got command message: '{}' with id: {id} from peer: {peer_id}",
-                        String::from_utf8_lossy(&message.data),
-                    ),
+                })) => {
+                    match String::from_utf8_lossy(&message.data).as_ref() {
+                        "ADD_TRANSACTION" => add_to_transaction_pool.await,
+                        _ =>  eprintln!("Invalid NODE command: {} from peer: {peer_id} with id: {id}", String::from_utf8_lossy(&message.data))
+                    }
+                },
                 SwarmEvent::NewListenAddr { address, .. } => {
                     println!("Local node is listening on {address}");
                 }
